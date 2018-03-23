@@ -4,9 +4,9 @@ A replication of the paper [Improved Semantic Representations From Tree-Structur
 # Sentiment Classification
 data download and read : treebank_reader
 
-baseline model: lstm_sentiment_seq
+baseline model : lstm_sentiment_seq
 
 # Semantic Relatedness
 data download and read : SICK_data 
 
-baseline model: semantic_baseline
+baseline model : semantic_baseline
