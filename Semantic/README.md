@@ -1,4 +1,4 @@
-#Commandline Usage
+# Commandline Usage
 SICK_cons_lstm --usegpu  
 SICK_dep_lstm --usegpu  
 SICK_lstm.jl --usegpu --bilstm --layer 1   
