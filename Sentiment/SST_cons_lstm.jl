@@ -120,27 +120,29 @@ function train(w,x,p,lambda,opt,rand)
 end
 
 
-function Accuracy(w, data,p,lambda,rand)
-    ncorrectb = 0.0
+function Accuracy(w, data,p,lambda,binary,rand)
     ncorrect=0.0
     nsentences = 0.0
     J=0.0
     for batch in data
         for x in batch
             y,ytrue=predict(w,x,p,rand)
+            #ypred=convert(Array,y[:,end])
             ypred=convert(Array,y[:,end])
             ygold=ytrue[end]
-            ncorrectb+= indmax(ypred)==1 && (ygold==1 || ygold==2)?1.0:0.0
-            ncorrectb+= indmax(ypred)==2 && (ygold==1 || ygold==2)?1.0:0.0
-            ncorrectb+= indmax(ypred)==4 && (ygold==4 || ygold==5)?1.0:0.0
-            ncorrectb+= indmax(ypred)==5 && (ygold==4 || ygold==5)?1.0:0.0
-            ncorrect+= indmax(ypred)==ygold?1.0:0.0
+            if binary
+                ncorrect+= indmax(ypred)==1 && (ygold==1 || ygold==2)?1.0:0.0
+                ncorrect+= indmax(ypred)==2 && (ygold==1 || ygold==2)?1.0:0.0
+                ncorrect+= indmax(ypred)==4 && (ygold==4 || ygold==5)?1.0:0.0
+                ncorrect+= indmax(ypred)==5 && (ygold==4 || ygold==5)?1.0:0.0
+            else
+                ncorrect+= indmax(ypred)==ygold?1.0:0.0
+            end
         end
         J += loss(w,batch,p,lambda,rand)
         nsentences+=length(batch)
     end
     tag_acc=ncorrect/nsentences
-    tag_acc_b=ncorrectb/nsentences
     tag_loss=J/length(data)
 
     return tag_acc,tag_acc_b,tag_loss
@@ -205,13 +207,13 @@ function main(args)
     @time for x in trn
              train(model,x,o[:dropout],o[:lambda],optim,o[:random])
         end
-        trnacc,trnaccb,trnloss = Accuracy(model, trn,o[:dropout],o[:lambda],o[:random])
-        devacc,devaccb,devloss = Accuracy(model, dev,o[:dropout],o[:lambda],o[:random])
-        tstacc,tstaccb,tstloss = Accuracy(model, tst,o[:dropout],o[:lambda],o[:random])
+        trnacc,trnloss = Accuracy(w, trn,o[:lambda],o[:binary],o[:random])
+        devacc,devloss = Accuracy(w, dev,o[:lambda],o[:binary],o[:random])
+        tstacc,tstloss = Accuracy(w, tst,o[:lambda],o[:binary],o[:random])
         println("EPOCH: ",i)
-        @printf("trnacc=%.4f,   trnaccbin=%.4f,   trnloss=%f\n", trnacc,trnaccb,trnloss)
-        @printf("devacc=%.4f,   devaccbin=%.4f,   devloss=%f\n", devacc,devaccb,devloss)
-        @printf("tstacc=%.4f,   tstaccbin=%.4f,   tstloss=%f\n", tstacc,tstaccb,tstloss)
+        @printf("trnacc=%.4f,   trnloss=%f\n", trnacc,trnloss)
+        @printf("devacc=%.4f,   devloss=%f\n", devacc,devloss)
+        @printf("tstacc=%.4f,   tstloss=%f\n", tstacc,tstloss)
     end
 
 end
