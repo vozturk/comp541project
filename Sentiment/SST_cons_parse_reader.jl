@@ -69,8 +69,6 @@ let
         if !isleaf(subtree)
             push!(nodes, subtree)
             map(helper, subtree.children)
-        elseif isleaf(subtree)
-            push!(nodes, subtree)
         end
     end
 end
@@ -213,16 +211,14 @@ end
 function make_data!(trees, w2i, l2i,w2g,rand)
     for tree in trees
         for nonterm in nonterms(tree)
-            if !isleaf(nonterm)
-                nonterm.data = l2i[nonterm.label]
+            nonterm.data = l2i[nonterm.label]
+        end
+        for leaf in leaves(tree)
+            if rand
+                leaf.data = get(w2i, lowercase(leaf.label), w2i[UNK])
             else
-                if rand
-                    nonterm.data = get(w2i, lowercase(nonterm.label), w2i[UNK])
-                else
-                    nonterm.data = get(w2g, lowercase(nonterm.label),randn(Float32,(300,1)) )
-                end
+                leaf.data = get(w2g, lowercase(leaf.label),randn(Float32,(300,1)) )
             end
-
         end
     end
 end
