@@ -222,7 +222,7 @@ function make_data!(deptrees,constrees, w2i, l2i,w2g)
             nonterm.data = get(w2g, nonterm.label, randn(Float32,(300,1)))
             for nt in nonterms(constrees[i])
                 if !isleaf(nt)
-                    if sort(spans(nt,true,false))==sort(spans(deptree,true,true))
+                    if sort(spans(nt,true,false))==sort(spans(nonterm,true,true))
                         nonterm.tag=get(l2i,nt.label,10)
                         n+=1
                     else
