@@ -178,8 +178,8 @@ function main(args)
     trn,dev,tst=load_treebank_data(true)
     trnc,devc,tstc=load_treebank_data(false)
 
-    l2i,w2i,i2l,i2w,w2g = build_treebank_vocabs(trn,dev,tst)
-    println("number of words not in glove is",length(w2i)-length(w2g))
+    l2i,w2i,i2l,i2w,w2g,words = build_treebank_vocabs(trn,dev,tst)
+    println("number of words not in glove is",length(words)-length(w2g))
 
     if isfile("SST_dep.jld")
         trn=load("SST_dep.jld","trn")

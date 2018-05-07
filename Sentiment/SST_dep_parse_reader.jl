@@ -8,6 +8,7 @@ using JLD
 const TREEBANK_URL = "https://nlp.stanford.edu/sentiment/trainDevTestTrees_PTB.zip"
 const TREEBANK_SPLITS = ("train","dev", "test")
 const nonglove=randn(Float32,(300,1))
+const UNK="UNK"
 
 
 
@@ -93,7 +94,7 @@ let
             end
         else
             if !isleaf(subtree)
-                dep==true?push!(labels, subtree.label):nothing
+                dep==true?push!(labels, subtree.data):nothing
                 map(t->helper(t,label,dep), subtree.children)
             elseif isleaf(subtree)
                 push!(labels, subtree.data)
@@ -167,9 +168,16 @@ end
 
     function build_treebank_vocabs(trn,dev,tst)
         words = Set()
+        wordstrn=Set()
         labels = map(t->string(t),range(0,5))
         splits=[trn,dev,tst]
         w2g=Dict()
+        for i in 1:length(trn)
+            tree=trn[i]
+            push!(wordstrn, map(t->lowercase(t.label), nonterms(tree))...)
+        end
+        push!(wordstrn, UNK)
+        wordstrn=unique(wordstrn)
         for s in splits
             for i in 1:length(s)
                 tree=s[i]
@@ -191,9 +199,9 @@ end
             end
                 save("SST_glove.jld","w2g",w2g)
         end
-        w2i, i2w = build_vocab(words)
+        w2i, i2w = build_vocab(wordstrn)
         l2i, i2l = build_vocab(labels)
-        return l2i, w2i, i2l, i2w, w2g
+        return l2i, w2i, i2l, i2w, w2g,words
     end
 
     function build_vocab(xs)
@@ -207,16 +215,19 @@ end
 
 function make_data!(deptrees,constrees, w2i, l2i,w2g)
     n=0
+    length(deptrees)!=length(constrees)?println("cons and dep trees not in the same length"):nothing
     for i in 1:length(deptrees)
-        tree=deptrees[i]
-        for nonterm in nonterms(tree)
+        deptree=deptrees[i]
+        for nonterm in nonterms(deptree)
             nonterm.data = get(w2g, nonterm.label, randn(Float32,(300,1)))
             for nt in nonterms(constrees[i])
-                if sort(spans(nt,true,false))==sort(spans(tree,true,true))
-                    nonterm.tag=get(l2i,nt.label,10)
-                    n+=1
-                else
-                    nonterm.tag=10
+                if !isleaf(nt)
+                    if sort(spans(nt,true,false))==sort(spans(deptree,true,true))
+                        nonterm.tag=get(l2i,nt.label,10)
+                        n+=1
+                    else
+                        nonterm.tag=10
+                    end
                 end
             end
         end
