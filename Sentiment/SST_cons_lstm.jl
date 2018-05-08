@@ -7,6 +7,17 @@ using ArgParse
 include("SST_cons_parse_reader.jl")
 
 
+function embedding(i2w,w2g)
+    w2v=[]
+    for i in 1:length(i2w)
+        word=get(i2w,i,UNK)
+        g=get(w2g,word,nonglove)
+        push!(w2v,g)
+    end
+    return hcat(w2v...)
+end
+
+
 function minibatch(data,batchsize)
     batches=Any[]
     shuffle!(data)
@@ -23,8 +34,8 @@ end
 
 
 
-function initweights(atype,nwords,embed,class,hsize,winit=0.1)
-    w = Array{Any}(9)
+function initweights(atype,w2v,nwords,embed,class,hsize,winit=0.1)
+    w = Array{Any}(10)
     we(d...)=atype(winit.*randn(d...))
     bi(d...)=atype(zeros(d...))
     w[1]=we(3*hsize,embed) #weight of inputs -no forget gate weight
@@ -36,16 +47,17 @@ function initweights(atype,nwords,embed,class,hsize,winit=0.1)
     w[7]=we(class,hsize) #weight of softmax
     w[8]=bi(class,1) #bias of softmax
     w[9]=we(embed,nwords) #embedding matrices
+    w[10]=convert(atype,w2v)
     return w
 end
 
 function lstm_leaf(w,data,p,rand)
     hsize=size(w[4],2)
     if rand
-        x=w[end][:,data]
+        x=w[9][:,data]
         x=reshape(x,length(x),1)
     else
-        x=convert(KnetArray{Float32},data)
+        x=w[10][:,data]
         x=reshape(x,length(x),1)
     end
     gx = w[1]*x .+ w[2]
@@ -114,9 +126,9 @@ end
 
 lossgradient=grad(loss)
 
-function train(w,x,p,lambda,opt,rand)
+function train(w,x,p,lambda,opt,opt2,rand)
     g=lossgradient(w,x,p,lambda,rand)
-    update!(w,g,opt)
+    update!(w,g,[opt...,opt2])
 end
 
 
@@ -145,7 +157,7 @@ function Accuracy(w, data,p,lambda,binary,rand)
     tag_acc=ncorrect/nsentences
     tag_loss=J/length(data)
 
-    return tag_acc,tag_acc_b,tag_loss
+    return tag_acc,tag_loss
 end
 
 function main(args)
@@ -156,6 +168,8 @@ function main(args)
     @add_arg_table s begin
         ("--usegpu"; action=:store_true; help="use GPU or not")
         ("--random"; action=:store_true; help="randomized or glove word vectors")
+        ("--binary"; action=:store_true; help="binary or fine-grained")
+        ("--tune"; action=:store_true; help="tuning glove word vectors or not")
         ("--dropout"; arg_type=Float64; default=0.5; help="dropout ratio")
         ("--lambda"; arg_type=Float64; default=0.0001; help="L2 regularization strength")
         ("--LR"; arg_type=Float64; default=0.05; help="Learning Rate")
@@ -165,7 +179,7 @@ function main(args)
         ("--report"; arg_type=Int; default=500; help="report period in iters")
         ("--valid"; arg_type=Int; default=10000; help="valid period in iters")
         ("--seed"; arg_type=Int; default=-1; help="random seed")
-        ("--batchsize"; arg_type=Int; default=20; help="batchsize")
+        ("--batchsize"; arg_type=Int; default=10; help="batchsize")
     end
 
     isa(args, AbstractString) && (args=split(args))
@@ -175,29 +189,32 @@ function main(args)
 
 # Data Loading
     trn,dev,tst=load_treebank_data()
+    l2i,w2i,i2l,i2w,w2g = build_treebank_vocabs(trn,dev,tst,o[:random])
+    !o[:random]?println("number of words not in glove is",length(w2i)-length(w2g)):nothing
 
+    make_data!(trn,w2i,l2i,w2g)
+    make_data!(dev,w2i,l2i,w2g)
+    make_data!(tst,w2i,l2i,w2g)
 
-    l2i,w2i,i2l,i2w,w2g,words = build_treebank_vocabs(trn,dev,tst)
-    !o[:random]?println("number of words not in glove is",length(words)-length(w2g)):nothing
+    trn=binarized(trn)
+    dev=binarized(dev)
+    tst=binarized(tst)
 
-    make_data!(trn,w2i,l2i,w2g,o[:random])
-    make_data!(dev,w2i,l2i,w2g,o[:random])
-    make_data!(tst,w2i,l2i,w2g,o[:random])
 
     trn=minibatch(trn,o[:batchsize])
     dev=minibatch(dev,o[:batchsize])
     tst=minibatch(tst,o[:batchsize])
 
 
-    println(length(trn))
-
 
 # -----------------------------------------------------------------------
 
     nwords, ntags = length(w2i), length(l2i)
+    w2v=embedding(i2w,w2g)
     model=optim=nothing; knetgc()
-    model = initweights(atype,nwords,o[:embed],ntags,o[:hidden])
-    optim=optimizers(model,Adagrad,lr=o[:LR])
+    model = initweights(atype,w2v,nwords,o[:embed],ntags,o[:hidden])
+    optim=optimizers(model[1:end-1],Adagrad,lr=o[:LR])
+    optim2=o[:tune]==true?optimizers(model[end],Adagrad,lr=0.1):optimizers(model[end],Adagrad,lr=0)
 
     println("startup time: ", Int((now()-t00).value)*0.001); flush(STDOUT)
 
@@ -205,11 +222,11 @@ function main(args)
          shuffle!(trn)
 
     @time for x in trn
-             train(model,x,o[:dropout],o[:lambda],optim,o[:random])
+             train(model,x,o[:dropout],o[:lambda],optim,optim2,o[:random])
         end
-        trnacc,trnloss = Accuracy(w, trn,o[:lambda],o[:binary],o[:random])
-        devacc,devloss = Accuracy(w, dev,o[:lambda],o[:binary],o[:random])
-        tstacc,tstloss = Accuracy(w, tst,o[:lambda],o[:binary],o[:random])
+        trnacc,trnloss = Accuracy(model, trn,o[:dropout],o[:lambda],o[:binary],o[:random])
+        devacc,devloss = Accuracy(model, dev,o[:dropout],o[:lambda],o[:binary],o[:random])
+        tstacc,tstloss = Accuracy(model, tst,o[:dropout],o[:lambda],o[:binary],o[:random])
         println("EPOCH: ",i)
         @printf("trnacc=%.4f,   trnloss=%f\n", trnacc,trnloss)
         @printf("devacc=%.4f,   devloss=%f\n", devacc,devloss)

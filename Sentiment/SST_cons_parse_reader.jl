@@ -161,42 +161,46 @@ end
         end
     end
 
-    function build_treebank_vocabs(trn,dev,tst)
+    function build_treebank_vocabs(trn,dev,tst,rand)
         words = Set()
         labels = map(t->string(t),range(0,5))
         splits=[trn,dev,tst]
         w2g=Dict()
-        wordstrn=Set()
-        for i in 1:length(trn)
-            tree=trn[i]
-            push!(wordstrn, map(t->lowercase(t.label), leaves(tree))...)
-        end
-        push!(wordstrn, UNK)
-        wordstrn=unique(wordstrn)
-        for s in splits
-            for i in 1:length(s)
-                tree=s[i]
+        if rand
+            for i in 1:length(trn)
+                tree=trn[i]
                 push!(words, map(t->lowercase(t.label), leaves(tree))...)
             end
-        end
-        words=unique(words)
-        if isfile("SST_glove.jld")
-            w2g=load("SST_glove.jld","w2g")
+            push!(words, UNK)
+            words=unique(words)
         else
-            f="glove.840B.300d.txt"
-            lines = readlines(f)
-            for line in lines
-                ln=split(line)
-                if lowercase(ln[1]) in words
-                    embedding=[parse(Float32,ln[i]) for i in 2:length(ln)  ]
-                    w2g[lowercase(ln[1])]=embedding
+            for s in splits
+                for i in 1:length(s)
+                    tree=s[i]
+                    push!(words, map(t->lowercase(t.label), leaves(tree))...)
                 end
             end
-            save("SST_glove.jld","w2g",w2g)
+            words=unique(words)
+            if isfile("SST_glove.jld")
+                w2g=load("SST_glove.jld","w2g")
+            else
+                f="glove.840B.300d.txt"
+                lines = readlines(f)
+                for line in lines
+                    ln=split(line)
+                    if lowercase(ln[1]) in words
+                        embedding=[parse(Float32,ln[i]) for i in 2:length(ln)  ]
+                        w2g[lowercase(ln[1])]=embedding
+                    end
+                end
+                save("SST_glove.jld","w2g",w2g)
+            end
+            words=collect(keys(w2g))
+            push!(words,UNK)
         end
-        w2i, i2w = build_vocab(wordstrn)
+        w2i, i2w = build_vocab(words)
         l2i, i2l = build_vocab(labels)
-        return l2i, w2i, i2l, i2w, w2g,words
+        return l2i, w2i, i2l, i2w, w2g
     end
 
     function build_vocab(xs)
@@ -208,17 +212,13 @@ end
         return x2i, i2x
     end
 
-function make_data!(trees, w2i, l2i,w2g,rand)
+function make_data!(trees, w2i, l2i,w2g)
     for tree in trees
         for nonterm in nonterms(tree)
             nonterm.data = l2i[nonterm.label]
         end
         for leaf in leaves(tree)
-            if rand
-                leaf.data = get(w2i, lowercase(leaf.label), w2i[UNK])
-            else
-                leaf.data = get(w2g, lowercase(leaf.label),randn(Float32,(300,1)) )
-            end
+            leaf.data = get(w2i, lowercase(leaf.label), w2i[UNK])
         end
     end
 end
