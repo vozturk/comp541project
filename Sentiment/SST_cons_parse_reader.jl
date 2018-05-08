@@ -212,7 +212,7 @@ end
         return x2i, i2x
     end
 
-function make_data!(trees, w2i, l2i,w2g)
+function make_data!(trees, w2i, l2i)
     for tree in trees
         for nonterm in nonterms(tree)
             nonterm.data = l2i[nonterm.label]

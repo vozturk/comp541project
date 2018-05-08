@@ -192,9 +192,9 @@ function main(args)
     l2i,w2i,i2l,i2w,w2g = build_treebank_vocabs(trn,dev,tst,o[:random])
     !o[:random]?println("number of words not in glove is",length(w2i)-length(w2g)):nothing
 
-    make_data!(trn,w2i,l2i,w2g)
-    make_data!(dev,w2i,l2i,w2g)
-    make_data!(tst,w2i,l2i,w2g)
+    make_data!(trn,w2i,l2i)
+    make_data!(dev,w2i,l2i)
+    make_data!(tst,w2i,l2i)
 
     trn=binarized(trn)
     dev=binarized(dev)
