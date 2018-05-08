@@ -7,6 +7,16 @@ using JLD
 
 include("SST_dep_parse_reader.jl")
 
+function embedding(i2w,w2g)
+    w2v=[]
+    for i in 1:length(i2w)
+        word=get(i2w,i,UNK)
+        g=get(w2g,word,nonglove)
+        push!(w2v,g)
+    end
+    return hcat(w2v...)
+end
+
 
 function minibatch(data,batchsize)
     batches=Any[]
@@ -24,8 +34,8 @@ end
 
 
 
-function initweights(atype,embed,class,hsize,winit=0.1)
-    w = Array{Any}(8)
+function initweights(atype,w2v,embed,class,hsize,winit=0.1)
+    w = Array{Any}(9)
     we(d...)=atype(winit.*randn(d...))
     bi(d...)=atype(zeros(d...))
     w[1]=we(4*hsize,embed) #weight of inputs
@@ -36,12 +46,13 @@ function initweights(atype,embed,class,hsize,winit=0.1)
     w[6]=bi(hsize,1)
     w[7]=we(class,hsize)
     w[8]=bi(class,1) #bias of softmax
+    w[9]=convert(atype,w2v)
     return w
 end
 
 function lstm_leaf(w,x,p)
     hsize=size(w[4],2)
-    x=convert(KnetArray{Float32},x)
+    x=w[9][:,x]
     x=reshape(x,length(x),1)
     gx = w[1]*x .+ w[2]
     i = sigm.(gx[1:hsize,:])
@@ -56,7 +67,7 @@ end
 function lstm(w,x,hc,cc,p)
     hsize=size(w[4],2)
     n=length(hc)
-    x=convert(KnetArray{Float32},x)
+    x=w[9][:,x]
     x=reshape(x,length(x),1)
     gh = w[1][1:3*hsize,:]*x + w[3][1:3*hsize,:]*sum(hc) + w[2][1:3*hsize,:]
     i = sigm.(gh[1:hsize,:])
@@ -91,8 +102,8 @@ end
 function predict(w,x,p)
     (_,_,h,ygold) = helper(x,w,p)
     ypred = w[7]*hcat(h...) .+ w[8]
-    n=find(ygold.!=10)
-    return ypred[:,n],ygold[:,n]
+    n=find(ygold)
+    return ypred[:,Int[n...]],ygold[[n...]]
 end
 
 function loss(w,batch,p,lambda)
@@ -113,9 +124,9 @@ end
 
 lossgradient=grad(loss)
 
-function train(w,x,p,lambda,opt)
+function train(w,x,p,lambda,opt,opt2)
     g=lossgradient(w,x,p,lambda)
-    update!(w,g,opt)
+    update!(w,g,[opt...,opt2])
 end
 
 
@@ -166,7 +177,7 @@ function main(args)
         ("--report"; arg_type=Int; default=500; help="report period in iters")
         ("--valid"; arg_type=Int; default=10000; help="valid period in iters")
         ("--seed"; arg_type=Int; default=-1; help="random seed")
-        ("--batchsize"; arg_type=Int; default=150; help="batchsize")
+        ("--batchsize"; arg_type=Int; default=10; help="batchsize")
     end
 
     isa(args, AbstractString) && (args=split(args))
@@ -178,19 +189,12 @@ function main(args)
     trn,dev,tst=load_treebank_data(true)
     trnc,devc,tstc=load_treebank_data(false)
 
-    l2i,w2i,i2l,i2w,w2g,words = build_treebank_vocabs(trn,dev,tst)
-    println("number of words not in glove is",length(words)-length(w2g))
+    l2i,w2i,i2l,i2w,w2g = build_treebank_vocabs(trn,dev,tst)
+    println("number of words not in glove is",length(w2i)-length(w2g))
 
-    if isfile("SST_dep.jld")
-        trn=load("SST_dep.jld","trn")
-        dev=load("SST_dep.jld","dev")
-        tst=load("SST_dep.jld","tst")
-    else
-        make_data!(trn,trnc,w2i,l2i,w2g)
-        make_data!(dev,devc,w2i,l2i,w2g)
-        make_data!(tst,tstc,w2i,l2i,w2g)
-        save("SST_dep.jld","trn",trn,"dev",dev,"tst",tst)
-    end
+    make_data!(trn,trnc,w2i,l2i)
+    make_data!(dev,devc,w2i,l2i)
+    make_data!(tst,tstc,w2i,l2i)
 
     if o[:binary]
         trn=binarized(trn)
@@ -199,24 +203,26 @@ function main(args)
     end
 
 
+    trn=minibatch(trn,o[:batchsize])
+    dev=minibatch(dev,o[:batchsize])
+    tst=minibatch(tst,o[:batchsize])
 
-    println(length(trn))
 
 
 # -----------------------------------------------------------------------
 
     nwords, ntags = length(w2i), length(l2i)
+    w2v=embedding(i2w,w2g)
     model=optim=nothing; knetgc()
-    model = initweights(atype,o[:embed],ntags,o[:hidden])
-    optim=optimizers(model,Adagrad,lr=o[:LR])
+    model = initweights(atype,w2v,o[:embed],ntags,o[:hidden])
+    optim=optimizers(model[1:end-1],Adagrad,lr=o[:LR])
+    optim2=optimizers(model[end],Adagrad,lr=0.1)
 
     println("startup time: ", Int((now()-t00).value)*0.001); flush(STDOUT)
 
      for i in 1:o[:epochs]
-         shuffle!(trn)
-
     @time for x in trn
-             train(model,x,o[:dropout],o[:lambda],optim)
+             train(model,x,o[:dropout],o[:lambda],optim,optim2)
         end
         trnacc,trnloss = Accuracy(model, trn,o[:dropout],o[:lambda],o[:binary])
         devacc,devloss = Accuracy(model, dev,o[:dropout],o[:lambda],o[:binary])

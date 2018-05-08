@@ -89,14 +89,14 @@ let
             if !isleaf(subtree)
                 dep==true?push!(labels, subtree.label):nothing
                 map(t->helper(t,label,dep), subtree.children)
-            elseif isleaf(subtree)
+            else
                 push!(labels, subtree.label)
             end
         else
             if !isleaf(subtree)
                 dep==true?push!(labels, subtree.data):nothing
                 map(t->helper(t,label,dep), subtree.children)
-            elseif isleaf(subtree)
+            else
                 push!(labels, subtree.data)
             end
         end
@@ -168,40 +168,35 @@ end
 
     function build_treebank_vocabs(trn,dev,tst)
         words = Set()
-        wordstrn=Set()
         labels = map(t->string(t),range(0,5))
         splits=[trn,dev,tst]
         w2g=Dict()
-        for i in 1:length(trn)
-            tree=trn[i]
-            push!(wordstrn, map(t->lowercase(t.label), nonterms(tree))...)
-        end
-        push!(wordstrn, UNK)
-        wordstrn=unique(wordstrn)
-        for s in splits
-            for i in 1:length(s)
-                tree=s[i]
-                push!(words, map(t->lowercase(t.label), nonterms(tree))...)
-            end
-        end
-        words=unique(words)
-        if isfile("SST_glove.jld")
-            w2g=load("SST_glove.jld","w2g")
-        else
-            f="glove.840B.300d.txt"
-            lines = readlines(f)
-            for line in lines
-                ln=split(line)
-                if lowercase(ln[1]) in words
-                    embedding=[parse(Float32,ln[i]) for i in 2:length(ln)  ]
-                    w2g[lowercase(ln[1])]=embedding
+            for s in splits
+                for i in 1:length(s)
+                    tree=s[i]
+                    push!(words, map(t->lowercase(t.label), nonterms(tree))...)
                 end
             end
+            words=unique(words)
+            if isfile("SST_glove.jld")
+                w2g=load("SST_glove.jld","w2g")
+            else
+                f="glove.840B.300d.txt"
+                lines = readlines(f)
+                for line in lines
+                    ln=split(line)
+                    if lowercase(ln[1]) in words
+                        embedding=[parse(Float32,ln[i]) for i in 2:length(ln)  ]
+                        w2g[lowercase(ln[1])]=embedding
+                    end
+                end
                 save("SST_glove.jld","w2g",w2g)
-        end
-        w2i, i2w = build_vocab(wordstrn)
+            end
+            words=collect(keys(w2g))
+            push!(words,UNK)
+        w2i, i2w = build_vocab(words)
         l2i, i2l = build_vocab(labels)
-        return l2i, w2i, i2l, i2w, w2g,words
+        return l2i, w2i, i2l, i2w, w2g
     end
 
     function build_vocab(xs)
@@ -213,21 +208,24 @@ end
         return x2i, i2x
     end
 
-function make_data!(deptrees,constrees, w2i, l2i,w2g)
+function make_data!(deptrees,constrees, w2i, l2i)
     n=0
     length(deptrees)!=length(constrees)?println("cons and dep trees not in the same length"):nothing
     for i in 1:length(deptrees)
-        deptree=deptrees[i]
-        for nonterm in nonterms(deptree)
-            nonterm.data = get(w2g, nonterm.label, randn(Float32,(300,1)))
-            for nt in nonterms(constrees[i])
-                if !isleaf(nt)
-                    if sort(spans(nt,true,false))==sort(spans(nonterm,true,true))
-                        nonterm.tag=get(l2i,nt.label,10)
-                        n+=1
-                    else
-                        nonterm.tag=10
-                    end
+        for ntd in nonterms(deptrees[i])
+            ntd.data = get(w2i, lowercase(ntd.label), get(w2i,UNK,0))
+            ntd.tag=0
+        end
+        spancons=[]
+        for nt in filter(!isleaf,nonterms(constrees[i]))
+            push!(spancons,[sort(spans(nt,true,false)),nt])
+        end
+        for ntd in nonterms(deptrees[i])
+            span=sort(spans(ntd,true,true))
+            for spanc in spancons
+                if span==spanc[1]
+                    ntd.tag=get(l2i,spanc[2].label,0)
+                    n+=1
                 end
             end
         end
